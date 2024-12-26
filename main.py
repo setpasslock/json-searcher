@@ -42,13 +42,72 @@ class Index:
             self.index[value].append(i)
     
     def get_nested_value(self, item: dict, key_path: str) -> Any:
-        parts = [p.strip('"') for p in key_path.split('.')]
+        """Enhanced get_nested_value to properly handle arrays and nested structures"""
+        if not key_path or not item:
+            return None
+
+        def process_array_value(array_data, remaining_path):
+            """Helper function to process array values"""
+            if not remaining_path:
+                return array_data
+            # If we have more path to process, apply it to each element
+            results = []
+            for element in array_data:
+                if isinstance(element, (dict, list)):
+                    result = self.get_nested_value(element, remaining_path)
+                    if result is not None:
+                        results.append(result)
+            return results if results else None
+
+        parts = []
+        current_part = ""
+        in_quotes = False
+        
+        # Split path handling array notation
+        for char in key_path:
+            if char == '"':
+                in_quotes = not in_quotes
+            elif char == '.' and not in_quotes:
+                if current_part:
+                    parts.append(current_part)
+                current_part = ""
+            else:
+                current_part += char
+        
+        if current_part:
+            parts.append(current_part)
+
         current = item
-        for part in parts:
+        for i, part in enumerate(parts):
+            if current is None:
+                return None
+
+            # Check for array index notation
+            array_match = re.match(r'(.+?)\[(\d+)\]$', part)
+            if array_match:
+                key, index = array_match.groups()
+                index = int(index)
+                
+                # Get the array first
+                if isinstance(current, dict):
+                    current = current.get(key)
+                
+                # Then access the index
+                if isinstance(current, list) and 0 <= index < len(current):
+                    current = current[index]
+                    continue
+                return None
+
+            # Handle regular nested access
             if isinstance(current, dict):
                 current = current.get(part)
+            elif isinstance(current, list):
+                # If we're accessing a property of array elements
+                remaining_path = '.'.join(parts[i:])
+                return process_array_value(current, remaining_path)
             else:
                 return None
+
         return current
 
     def find(self, value: str) -> List[int]:
@@ -164,55 +223,90 @@ class JsonAnalyzer:
         return stats
     
     def get_nested_value(self, item: dict, key_path: str) -> Any:
-        """Get value from nested dictionary using dot notation or quoted keys"""
-        current = item
+        """Enhanced get_nested_value to properly handle arrays and nested structures"""
+        if not key_path or not item:
+            return None
+
+        def process_array_value(array_data, remaining_path):
+            """Helper function to process array values"""
+            if not remaining_path:
+                return array_data
+            # If we have more path to process, apply it to each element
+            results = []
+            for element in array_data:
+                if isinstance(element, (dict, list)):
+                    result = self.get_nested_value(element, remaining_path)
+                    if result is not None:
+                        results.append(result)
+            return results if results else None
+
         parts = []
-        
-        # Handle quoted paths with spaces
-        in_quotes = False
         current_part = ""
+        in_quotes = False
         
+        # Split path handling array notation
         for char in key_path:
-            if char == '"' and (not current_part or current_part[-1] != '\\'):
+            if char == '"':
                 in_quotes = not in_quotes
             elif char == '.' and not in_quotes:
                 if current_part:
-                    parts.append(current_part.strip('"'))
-                    current_part = ""
+                    parts.append(current_part)
+                current_part = ""
             else:
                 current_part += char
         
         if current_part:
-            parts.append(current_part.strip('"'))
+            parts.append(current_part)
 
-        # Remove any remaining quotes and create case-insensitive lookup
-        parts = [part.strip('"') for part in parts]
-        
-        # If it's a single key (no dots), try case-insensitive match
-        if len(parts) == 1:
-            search_key = parts[0]
-            # Create case-insensitive key mapping
-            key_map = {k.lower(): k for k in current.keys()}
-            # Try to find the actual key
-            actual_key = key_map.get(search_key.lower())
-            if actual_key is not None:
-                return current.get(actual_key)
-            return current.get(search_key)  # fallback to exact match
-            
-        # Handle nested keys
-        for part in parts:
+        current = item
+        for i, part in enumerate(parts):
+            if current is None:
+                return None
+
+            # Check for array index notation
+            array_match = re.match(r'(.+?)\[(\d+)\]$', part)
+            if array_match:
+                key, index = array_match.groups()
+                index = int(index)
+                
+                # Get the array first
+                if isinstance(current, dict):
+                    current = current.get(key)
+                
+                # Then access the index
+                if isinstance(current, list) and 0 <= index < len(current):
+                    current = current[index]
+                    continue
+                return None
+
+            # Handle regular nested access
             if isinstance(current, dict):
-                # Create case-insensitive key mapping for current level
-                key_map = {k.lower(): k for k in current.keys()}
-                # Try to find the actual key
-                actual_key = key_map.get(part.lower())
-                if actual_key is not None:
-                    current = current.get(actual_key)
+                current = current.get(part)
+                if current is None:
+                    return None
+            elif isinstance(current, list):
+                # If we're accessing a property of array elements
+                if i < len(parts) - 1:
+                    # We're not at the last part, keep processing
+                    new_results = []
+                    for element in current:
+                        if isinstance(element, dict):
+                            value = element.get(part)
+                            if value is not None:
+                                new_results.append(value)
+                    current = new_results if new_results else None
                 else:
-                    current = current.get(part)
+                    # We're at the last part, collect all values
+                    values = []
+                    for element in current:
+                        if isinstance(element, dict):
+                            value = element.get(part)
+                            if value is not None:
+                                values.append(value)
+                    return values if values else None
             else:
                 return None
-                
+
         return current
 
     def display_key_analysis(self):
@@ -306,44 +400,75 @@ class JsonAnalyzer:
         conditions.append((current_condition.strip(), None))
         return conditions
     def evaluate_simple_condition(self, item: dict, condition: str) -> bool:
-        """Evaluates a simple condition against an item"""
+        """
+        Evaluates a simple condition against an item, with enhanced array support
+        while maintaining original functionality
+        """
         operators = ["=", "!=", ">", "<", ">=", "<=", "LIKE"]
         operator = None
         
+        # Find the operator while avoiding false matches
         for op in operators:
-            if op in condition:
+            # Add spaces around operator to avoid partial matches
+            spaced_op = f" {op} "
+            if spaced_op in condition:
+                operator = op
+                break
+            # Also check for operators at the start of condition
+            elif condition.startswith(op + " "):
+                operator = op
+                break
+            # And at the end of condition
+            elif condition.endswith(" " + op):
+                operator = op
+                break
+            # If none of above, check original way as fallback
+            elif op in condition:
                 operator = op
                 break
 
         if not operator:
             return False
 
-        left, right = condition.split(operator)
+        # Split with maxsplit=1 to handle cases where operator might appear multiple times
+        left, right = condition.split(operator, maxsplit=1)
         left = left.strip()
         right = right.strip().strip('"\'')
         
+        # Get the value using enhanced get_nested_value
         value = self.get_nested_value(item, left)
 
+        # Handle array values
+        if isinstance(value, list):
+            # For array values, check if any element satisfies the condition
+            return any(self._evaluate_single_value(v, right, operator) for v in value)
+        else:
+            return self._evaluate_single_value(value, right, operator)
+
+    def _evaluate_single_value(self, value, right: str, operator: str) -> bool:
+        """Helper method to evaluate a single value against the condition"""
+        # Handle None values
+        if value is None:
+            str_value = ""
+        else:
+            str_value = str(value).strip()
+
+        # Normalize unicode and prepare comparison values
+        str_value = unicodedata.normalize('NFKC', str_value)
+        str_right = unicodedata.normalize('NFKC', right.strip())
+
         if operator == "=":
-            # Convert both values to string, handle None case, and normalize unicode
-            str_value = str(value).strip() if value is not None else ""
-            str_right = str(right).strip()
-            # Normalize unicode characters for both strings
-            str_value = unicodedata.normalize('NFKC', str_value)
-            str_right = unicodedata.normalize('NFKC', str_right)
             return str_value == str_right
-            
+                
         elif operator == "!=":
-            str_value = str(value).strip() if value is not None else ""
-            str_right = str(right).strip()
-            str_value = unicodedata.normalize('NFKC', str_value)
-            str_right = unicodedata.normalize('NFKC', str_right)
             return str_value != str_right
-            
+                
         elif operator in [">", "<", ">=", "<="]:
             try:
-                value_num = float(value)
+                # Handle numeric comparisons
+                value_num = float(value) if value is not None else 0
                 right_num = float(right)
+                
                 if operator == ">":
                     return value_num > right_num
                 elif operator == "<":
@@ -353,15 +478,19 @@ class JsonAnalyzer:
                 else:  # <=
                     return value_num <= right_num
             except (TypeError, ValueError):
+                # If numeric conversion fails, return False
                 return False
-                
+                    
         elif operator.upper() == "LIKE":
             try:
-                # Convert value to string and handle None case
-                str_value = str(value) if value is not None else ""
+                # Prepare strings for LIKE comparison
+                if value is None:
+                    str_value = ""
+                else:
+                    str_value = str(value)
                 pattern = str(right)
                 
-                # Normalize unicode characters and strip whitespace
+                # Normalize unicode and strip whitespace
                 str_value = unicodedata.normalize('NFKC', str_value.strip())
                 pattern = unicodedata.normalize('NFKC', pattern.strip())
                 
@@ -381,7 +510,7 @@ class JsonAnalyzer:
                     return str_value.startswith(search_text)
                 else:
                     return str_value == pattern
-                
+                    
             except (TypeError, ValueError, AttributeError) as e:
                 print(f"Error in LIKE comparison: {e}")
                 return False
@@ -426,6 +555,7 @@ class JsonAnalyzer:
     
 
     def execute_query(self, query: str) -> Optional[QueryStats]:
+        """Enhanced execute_query with better array handling and error management"""
         start_time = time.time()
         stats = QueryStats(start_time=start_time, end_time=0, rows_processed=0, rows_returned=0)
         
@@ -469,10 +599,13 @@ class JsonAnalyzer:
                 
             # Apply WHERE conditions
             where_condition = where_part.replace('WHERE', '', 1).strip() if where_part else ""
-            if where_condition:
-                results = [item for item in data if self.evaluate_complex_condition(item, where_condition)]
-            else:
-                results = data.copy()
+            results = []
+            for item in data:
+                if where_condition:
+                    if self.evaluate_complex_condition(item, where_condition):
+                        results.append(item)
+                else:
+                    results.append(item)
                 
             stats.rows_processed = len(data)
             
@@ -484,9 +617,9 @@ class JsonAnalyzer:
                 else:
                     columns = [col.strip().strip('"') for col in select_part.split(',')]
                 
-                # Create a set of tuples containing only the selected columns
+                # Create a set of tuples containing only the selected columns' values
                 unique_results = {
-                    tuple(str(row.get(col, "")).strip() for col in columns)
+                    tuple(str(self.get_nested_value(row, col)).strip() for col in columns)
                     for row in results
                 }
                 
@@ -505,14 +638,10 @@ class JsonAnalyzer:
             stats.rows_returned = len(results)
             stats.end_time = time.time()
             
-            # Store the last query results and columns
+            # Store results and display
             self.last_results = results
             self.last_columns = select_part
-            
-            # Display results
             self.display_results(results, select_part, stats)
-            
-            # Cache results
             self.cache.set(query, results)
             
             return stats
@@ -521,7 +650,9 @@ class JsonAnalyzer:
             self.console.print(f"[red]Error executing query: {str(e)}[/red]")
             return None
 
+
     def display_results(self, results: List[dict], select_part: str, stats: QueryStats = None):
+        """Enhanced display_results to handle array results better"""
         if not results:
             self.console.print("[yellow]No results found[/yellow]")
             return
@@ -531,55 +662,57 @@ class JsonAnalyzer:
 
         table = Table(show_header=True, header_style="bold magenta")
         
-        # Handle SELECT *
+        # Add the column header
+        columns = []
         if select_part.strip() == "*":
-            columns = set()
-            for result in results:
-                columns.update(result.keys())
-            columns = sorted(columns)
+            columns = list(results[0].keys()) if results else []
         else:
-            # Handle quoted column names
-            columns = []
+            # Split columns handling quoted names
             current = ""
             in_quotes = False
-            
             for char in select_part:
                 if char == '"':
                     in_quotes = not in_quotes
-                    if not in_quotes:  # End of quoted section
-                        if current.strip():
-                            columns.append(current.strip())
-                        current = ""
                 elif char == ',' and not in_quotes:
                     if current.strip():
                         columns.append(current.strip())
                     current = ""
                 else:
                     current += char
-            
             if current.strip():
                 columns.append(current.strip())
-            
-            # Clean up any remaining quotes
-            columns = [col.strip('"') for col in columns]
+            columns = [col.strip().strip('"') for col in columns]
 
         # Add columns to table
         for col in columns:
             table.add_column(col)
 
-        # Add rows (only non-empty ones)
+        # Process and display each row
         for result in results:
             row = []
             has_content = False
             for col in columns:
-                value = str(result.get(col, "")).strip()
-                row.append(value)
-                if value:
+                value = self.get_nested_value(result, col)
+                if isinstance(value, list):
+                    # For array of simple values (strings, numbers)
+                    if value and not isinstance(value[0], (dict, list)):
+                        value = ", ".join(str(v) for v in value)
+                    else:
+                        # For array of objects or nested arrays
+                        value = json.dumps(value, indent=2)
+                elif isinstance(value, dict):
+                    value = json.dumps(value, indent=2)
+                
+                str_value = str(value) if value is not None else ""
+                row.append(str_value)
+                if str_value:
                     has_content = True
+                    
             if has_content:
                 table.add_row(*row)
 
         self.console.print(table)
+
 
     def export_results(self, filename: str):
         try:
