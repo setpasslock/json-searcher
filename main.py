@@ -203,8 +203,7 @@ class JsonAnalyzer:
             self.console.print(f"[red]Error loading {filepath}: {str(e)}[/red]")
             return None
         
-    def analyze_keys(self, data: Any, prefix: str = "", stats: Dict = None) -> Dict:
-        """Analyze the keys in JSON data and count their occurrences"""
+    def analyze_keys(self, data: Any, prefix: str = "", stats: Dict = None, table_name: str = None) -> Dict:
         if stats is None:
             stats = {}
 
@@ -212,13 +211,14 @@ class JsonAnalyzer:
             for key, value in data.items():
                 new_prefix = f"{prefix}.{key}" if prefix else key
                 if new_prefix not in stats:
-                    stats[new_prefix] = {"count": 1}
+                    stats[new_prefix] = {"count": 1, "tables": {table_name}}
                 else:
                     stats[new_prefix]["count"] += 1
-                self.analyze_keys(value, new_prefix, stats)
+                    stats[new_prefix]["tables"].add(table_name)
+                self.analyze_keys(value, new_prefix, stats, table_name)
         elif isinstance(data, list):
             for item in data:
-                self.analyze_keys(item, prefix, stats)
+                self.analyze_keys(item, prefix, stats, table_name)
 
         return stats
     
@@ -310,8 +310,6 @@ class JsonAnalyzer:
         return current
 
     def display_key_analysis(self):
-        """Display analysis of keys and their occurrences"""
-        # Clear existing key stats
         self.key_stats.clear()
         
         # Analyze all loaded files
@@ -324,20 +322,22 @@ class JsonAnalyzer:
             if isinstance(data, list):
                 # For list of objects, analyze first item and then update counts
                 if data:
-                    self.key_stats.update(self.analyze_keys(data[0]))
+                    self.analyze_keys(data[0], stats=self.key_stats, table_name=filename)
                     for item in data[1:]:
-                        self.analyze_keys(item, stats=self.key_stats)
+                        self.analyze_keys(item, stats=self.key_stats, table_name=filename)
             else:
-                self.key_stats.update(self.analyze_keys(data))
+                self.analyze_keys(data, stats=self.key_stats, table_name=filename)
 
         # Display results in a table
         table = Table(show_header=True, header_style="bold magenta", title="JSON Key Analysis")
         table.add_column("Key Name", style="cyan")
+        table.add_column("Table Name", style="yellow")
         table.add_column("Occurrence Count", justify="right", style="green")
 
         # Sort keys alphabetically
         for key, info in sorted(self.key_stats.items()):
-            table.add_row(key, str(info["count"]))
+            table_names = ", ".join(sorted(info["tables"]))
+            table.add_row(key, table_names, str(info["count"]))
 
         self.console.print(table)
 
