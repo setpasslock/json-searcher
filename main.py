@@ -430,7 +430,7 @@ class JsonAnalyzer:
         stats = QueryStats(start_time=start_time, end_time=0, rows_processed=0, rows_returned=0)
         
         try:
-            # Parse query - update regex to capture DISTINCT keyword
+            # Parse query - updated regex to capture DISTINCT keyword
             match = re.match(
                 r'SELECT\s+(DISTINCT\s+)?(.*?)\s+FROM\s+(\w+)((?:\s+WHERE\s+.*?)?)((?:\s+LIMIT\s+\d+)?)((?:\s+OFFSET\s+\d+)?)\s*;?$', 
                 query, 
@@ -449,6 +449,9 @@ class JsonAnalyzer:
                 stats.cache_hit = True
                 stats.rows_returned = len(cached_results)
                 stats.end_time = time.time()
+                # Store the last query results and columns
+                self.last_results = cached_results
+                self.last_columns = select_part
                 self.display_results(cached_results, select_part, stats)
                 return stats
             
@@ -501,6 +504,10 @@ class JsonAnalyzer:
                 
             stats.rows_returned = len(results)
             stats.end_time = time.time()
+            
+            # Store the last query results and columns
+            self.last_results = results
+            self.last_columns = select_part
             
             # Display results
             self.display_results(results, select_part, stats)
@@ -574,25 +581,32 @@ class JsonAnalyzer:
 
         self.console.print(table)
 
-    def export_results(self, results: List[dict], filename: str):
-        """Export query results to CSV"""
+    def export_results(self, filename: str):
         try:
-            if not results:
-                self.console.print("[yellow]No results to export[/yellow]")
+            if not hasattr(self, 'last_results') or not self.last_results:
+                self.console.print("[yellow]No results to export. Run a query first.[/yellow]")
                 return
                 
             if not filename.endswith('.csv'):
                 filename += '.csv'
-                
-            fieldnames = results[0].keys()
             
+            # Get column names from the last query
+            if self.last_columns.strip() == "*":
+                fieldnames = list(self.last_results[0].keys())
+            else:
+                fieldnames = [col.strip().strip('"') for col in self.last_columns.split(',')]
+                
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
-                writer.writerows(results)
                 
+                # Only write the fields that were in the query
+                for result in self.last_results:
+                    row = {field: result.get(field, '') for field in fieldnames}
+                    writer.writerow(row)
+                    
             self.console.print(f"[green]Results exported to {filename}[/green]")
-            
+                
         except Exception as e:
             self.console.print(f"[red]Error exporting results: {str(e)}[/red]")
 
@@ -612,7 +626,6 @@ class JsonAnalyzer:
         self.console.print(table)
 
     def run_interactive(self):
-        """Run interactive query session"""
         while True:
             try:
                 command = self.session.prompt("json-query> ").strip()
@@ -643,10 +656,7 @@ class JsonAnalyzer:
                     self.create_index(table, key)
                 elif command.lower().startswith("export "):
                     _, filename = command.split(maxsplit=1)
-                    if hasattr(self, 'last_results'):
-                        self.export_results(self.last_results, filename)
-                    else:
-                        self.console.print("[yellow]No results to export. Run a query first.[/yellow]")
+                    self.export_results(filename)
                 elif command.lower().startswith("select"):
                     stats = self.execute_query(command)
                     if stats:
