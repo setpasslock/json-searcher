@@ -1,8 +1,7 @@
 # json-searcher
-A tool that allows you to query JSON files using SQL-like syntax.
+A tool that allows you to query JSON files using SQL-like syntax, with support for nested JSON structures and arrays.
 
 ## Features
-
 - SQL-like query syntax
 - WHERE conditions with AND/OR operators
 - LIKE operator with % wildcard support
@@ -10,15 +9,18 @@ A tool that allows you to query JSON files using SQL-like syntax.
 - Unicode character support
 - Query result caching
 - CSV export
-- Nested JSON structure support
+- Advanced nested JSON structure support
+  - Dot notation for nested objects
+  - Array indexing
+  - Array property access
+  - Nested array handling
 - DISTINCT keyword for unique results
 
 ## Installation
-
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/json-query-tool.git
-cd json-query-tool
+git clone https://github.com/setpasslock/json-searcher.git
+cd json-searcher
 ```
 
 2. Install dependencies:
@@ -27,26 +29,21 @@ pip install prompt_toolkit rich pygments
 ```
 
 ## Usage
-
 ### Basic Usage
-
 ```bash
 python json_parser.py data.json
 ```
 
 ### Command Line Options
-
 ```bash
 python json_parser.py [--lazy] [--analyze] [--query "SQL QUERY"] [--no-interactive] file1.json [file2.json ...]
 ```
-
 - `--lazy`: Enable lazy loading for large files
 - `--analyze`: Analyze JSON structure
 - `--query`: Run a single query
 - `--no-interactive`: Don't enter interactive mode
 
 ### Commands
-
 - `load <path> [--lazy]`: Load JSON file(s)
 - `show tables`: Display loaded JSON files
 - `analyze`: Analyze JSON keys
@@ -55,66 +52,136 @@ python json_parser.py [--lazy] [--analyze] [--query "SQL QUERY"] [--no-interacti
 - `help`: Show help message
 - `exit`: Exit program
 
-### Query Examples
-
+### Query Examples for Nested JSON
+#### Basic Nested Object Access
 ```sql
--- Basic query
-SELECT * FROM table_name
+-- Access nested object properties using dot notation
+SELECT user.profile.name FROM users
+SELECT user.address.city FROM users
 
--- Select specific columns
-SELECT col1, col2 FROM table_name
+-- Multiple nested fields
+SELECT user.profile.name, user.address.city FROM users
+```
 
--- With conditions
-SELECT * FROM table_name WHERE column = "value"
+#### Array Access
+```sql
+-- Access specific array element
+SELECT items[0].name FROM inventory
+SELECT users.friends[1].email FROM users
 
--- Multiple conditions
-SELECT * FROM table_name WHERE col1 = "value1" AND col2 = "value2"
+-- Access all array elements' properties
+SELECT users.friends.name FROM users
+```
 
--- Text search
-SELECT * FROM table_name WHERE column LIKE "%search%"
+#### Filtering with Nested Fields
+```sql
+-- Filter using nested object properties
+SELECT * FROM users WHERE user.profile.age > 25
+SELECT * FROM orders WHERE order.items.price > 100
 
--- Unique results
-SELECT DISTINCT column FROM table_name
+-- Filter using array properties
+SELECT * FROM users WHERE user.friends.name = "John"
+```
 
--- Pagination
-SELECT * FROM table_name LIMIT 10 OFFSET 20
+#### Complex Nested Structures
+```sql
+-- Example JSON structure:
+{
+  "user": {
+    "profile": {
+      "name": "John",
+      "contacts": [
+        {"type": "email", "value": "john@example.com"},
+        {"type": "phone", "value": "123-456-7890"}
+      ]
+    },
+    "orders": [
+      {
+        "id": 1,
+        "items": [
+          {"name": "Book", "price": 29.99},
+          {"name": "Pen", "price": 4.99}
+        ]
+      }
+    ]
+  }
+}
+
+-- Query examples for above structure:
+SELECT user.profile.contacts[0].value FROM users
+SELECT user.orders[0].items.name FROM users
+SELECT * FROM users WHERE user.profile.contacts.type = "email"
+```
+
+#### Working with Arrays
+```sql
+-- Get all item names from all orders
+SELECT user.orders.items.name FROM users
+
+-- Filter based on array contents
+SELECT * FROM users WHERE user.orders.items.price > 20
+
+-- Access nested array elements
+SELECT user.orders[0].items[1].name FROM users
 ```
 
 ### Supported Operators
-
 - Comparison: `=`, `!=`, `>`, `<`, `>=`, `<=`
 - Logical: `AND`, `OR`
 - Text search: `LIKE` (wildcard: `%`)
 - List search: `IN`
 
-## Usage Examples
-
+## Complete Example with Sample Data
 ```sql
--- Load JSON file
-load data.json
+-- Sample JSON data:
+{
+  "store": {
+    "departments": [
+      {
+        "name": "Electronics",
+        "products": [
+          {"id": 1, "name": "Laptop", "price": 999.99},
+          {"id": 2, "name": "Phone", "price": 499.99}
+        ]
+      },
+      {
+        "name": "Books",
+        "products": [
+          {"id": 3, "name": "Python Guide", "price": 29.99},
+          {"id": 4, "name": "SQL Manual", "price": 39.99}
+        ]
+      }
+    ]
+  }
+}
 
--- Analyze structure
-analyze
+-- Query Examples:
+-- Get all department names
+SELECT store.departments.name FROM inventory
 
--- Create index
-create index users id
+-- Get products from specific department
+SELECT store.departments[0].products.name FROM inventory
 
--- Query with conditions
-SELECT name, age FROM users WHERE age > 25 AND city LIKE "%York%"
+-- Find expensive products across all departments
+SELECT store.departments.products.name 
+FROM inventory 
+WHERE store.departments.products.price > 100
 
--- Export results
-export results.csv
+-- Search for specific product names
+SELECT * FROM inventory 
+WHERE store.departments.products.name LIKE "%Python%"
 ```
 
 ## Notes
-
 - Written in Python 3
 - Supports Unicode characters
 - Lazy loading option available for large files
 - Query results are cached for 5 minutes
 - Case-insensitive column name lookup
 - Column names with spaces should be wrapped in quotes
+- Dot notation used for accessing nested properties
+- Array indices start at 0
+- Can access properties across all array elements
 
 ## Contributing
-
-Feel free to open issues for bug reports or suggestions.
+Feel free to open issues for bug reports or suggestions. We especially welcome examples of complex nested JSON queries that could be added to the documentation.
